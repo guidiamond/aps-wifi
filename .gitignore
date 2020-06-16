@@ -1,3 +1,14 @@
+#Build Directories
+[Dd]ebug/
+[Rr]elease/
+
+#Atmel
+*.eep
+*.srec
+
+#User Specific Files
+*.atsuo
+
 # Prerequisites
 *.d
 
