@@ -13,8 +13,8 @@ def replace_cfg(path):
             file[i].replace(file[i], '#define main_wlan_ssid')
         if (file[i].find('#define MAIN_WLAN_PSK') != -1):
             file[i] = "#define MAIN_WLAN_PSK \"${0}\"\n".format(wifi_pass)
-        if (file[i].find('#define MAIN_SERVER_NAME') != -1):
-            file[i] = "#define MAIN_SERVER_NAME \"${0}\"\n".format(wifi_pass)
+        if (file[i].find('#define MAIN_WLAN_PSK') != -1):
+            file[i] = "#define MAIN_WLAN_PSK \"${0}\"\n".format(wifi_pass)
 
     file = "".join(file)
     # print(file)

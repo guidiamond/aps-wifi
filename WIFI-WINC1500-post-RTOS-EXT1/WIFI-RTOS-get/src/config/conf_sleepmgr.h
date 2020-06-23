@@ -1,9 +1,9 @@
 /**
  * \file
  *
- * \brief MAIN configuration.
+ * \brief Chip-specific sleep manager configuration
  *
- * Copyright (c) 2016 Atmel Corporation. All rights reserved.
+ * Copyright (c) 2012-2015 Atmel Corporation. All rights reserved.
  *
  * \asf_license_start
  *
@@ -22,6 +22,9 @@
  * 3. The name of Atmel may not be used to endorse or promote products derived
  *    from this software without specific prior written permission.
  *
+ * 4. This software may only be redistributed and used in connection with an
+ *    Atmel microcontroller product.
+ *
  * THIS SOFTWARE IS PROVIDED BY ATMEL "AS IS" AND ANY EXPRESS OR IMPLIED
  * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT ARE
@@ -37,44 +40,13 @@
  * \asf_license_stop
  *
  */
+/*
+ * Support and FAQ: visit <a href="http://www.atmel.com/design-support/">Atmel Support</a>
+ */
+#ifndef CONF_SLEEPMGR_H
+#define CONF_SLEEPMGR_H
 
-#ifndef MAIN_H_INCLUDED
-#define MAIN_H_INCLUDED
+// Sleep manager options
+#define CONFIG_SLEEPMGR_ENABLE
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
-#include "driver/include/m2m_wifi.h"
-
-/** Wi-Fi Settings */
-#define MAIN_WLAN_SSID "OnePlus 6"          /**< Destination SSID */
-#define MAIN_WLAN_AUTH M2M_WIFI_SEC_WPA_PSK /**< Security manner */
-#define MAIN_WLAN_PSK "Guifi345"            /**< Password for Destination SSID */
-
-/** Using broadcast address for simplicity. */
-#define MAIN_SERVER_PORT (5000)
-
-/** IP address parsing. */
-#define IPV4_BYTE(val, index) ((val >> (index * 8)) & 0xFF)
-
-/** Send buffer of TCP socket. */
-#define MAIN_PREFIX_BUFFER "GET /status HTTP/1.1\r\n Accept: */*\r\n\r\n"
-
-/** Weather information provider server. */
-#define MAIN_SERVER_NAME "192.168.43.88"
-
-/* Data in JSON format */
-#define MAIN_RESPONSE_FORMAT ""
-
-/** Receive buffer size. */
-#define MAIN_WIFI_M2M_BUFFER_SIZE 1400
-
-#define MAIN_HEX2ASCII(x) (((x) >= 10) ? (((x)-10) + 'A') : ((x) + '0'))
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* MAIN_H_INCLUDED */
+#endif /* CONF_SLEEPMGR_H */

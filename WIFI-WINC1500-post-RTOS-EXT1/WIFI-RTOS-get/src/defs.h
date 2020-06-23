@@ -9,12 +9,16 @@
 #ifndef DEFS_H_
 #define DEFS_H_
 
-
+#define ID_PLACA		          "234"		  
 #define TASK_WIFI_STACK_SIZE      (6*4096/sizeof(portSTACK_TYPE))
 #define TASK_WIFI_PRIORITY        (1)
 #define TASK_PROCESS_STACK_SIZE   (4*4096/sizeof(portSTACK_TYPE))
 #define TASK_PROCESS_PRIORITY     (0)
 
 
-
+#define AFEC_POT AFEC0
+#define AFEC_POT_ID ID_AFEC0
+#define AFEC_POT_CHANNEL 0
+#define TASK_LCD_STACK_SIZE            (4*1024/sizeof(portSTACK_TYPE))
+#define TASK_LCD_STACK_PRIORITY        (tskIDLE_PRIORITY)
 #endif 

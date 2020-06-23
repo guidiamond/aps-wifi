@@ -5,7 +5,22 @@
 #include "driver/include/m2m_wifi.h"
 #include "socket/include/socket.h"
 #include "util.h"
+#include "defs.h"
 
+typedef struct
+{
+	uint32_t year;
+	uint32_t month;
+	uint32_t day;
+	uint32_t week;
+	uint32_t hour;
+	uint32_t minute;
+	uint32_t second;
+} calendar;
+
+
+
+volatile char flag_rtc = 0;
 /************************************************************************/
 /* WIFI                                                                 */
 /************************************************************************/
@@ -37,20 +52,19 @@ static bool gbTcpConnected = false;
 /** Server host name. */
 static char server_host_name[] = MAIN_SERVER_NAME;
 
-/** TESTE POST **/
-int contentLength;
-char *POSTDATA = "LED=1";
+/** The conversion data is done flag */
+volatile bool g_is_conversion_done = false;
+
+/** The conversion data value */
+volatile uint32_t g_ul_value = 0;
 
 /************************************************************************/
 /* RTOS                                                                 */
 /************************************************************************/
 
-#define TASK_WIFI_STACK_SIZE      (6*4096/sizeof(portSTACK_TYPE))
-#define TASK_WIFI_PRIORITY        (1)
-#define TASK_PROCESS_STACK_SIZE   (4*4096/sizeof(portSTACK_TYPE))
-#define TASK_PROCESS_PRIORITY     (0)
 
-SemaphoreHandle_t xSemaphore;
+
+SemaphoreHandle_t xSemaphore, xSempahoreADC;
 QueueHandle_t xQueueMsg;
 
 extern void vApplicationStackOverflowHook(xTaskHandle *pxTask,
@@ -60,7 +74,6 @@ extern void vApplicationTickHook(void);
 extern void vApplicationMallocFailedHook(void);
 extern void xPortSysTickHandler(void);
 
-TaskHandle_t xHandleWifi = NULL;
 
 /************************************************************************/
 /* HOOKs                                                                */
@@ -79,7 +92,6 @@ extern void vApplicationTickHook(void){}
 extern void vApplicationMallocFailedHook(void){
 	configASSERT( ( volatile void * ) NULL );
 }
-
 /************************************************************************/
 /* funcoes                                                              */
 /************************************************************************/
@@ -87,6 +99,13 @@ extern void vApplicationMallocFailedHook(void){
 /************************************************************************/
 /* callbacks                                                            */
 /************************************************************************/
+/**
+* \brief AFEC interrupt callback function.
+*/
+static void AFEC_pot_Callback(void){
+	g_ul_value = afec_channel_get_value(AFEC_POT, AFEC_POT_CHANNEL);
+	g_is_conversion_done = true;
+}
 
 /**
 * \brief Callback function of IP address.
@@ -161,7 +180,52 @@ static void socket_cb(SOCKET sock, uint8_t u8Msg, void *pvMsg)
 		}
 	}
 }
+void RTC_init(Rtc *rtc, uint32_t id_rtc, calendar t, uint32_t irq_type)
+{
+	/* Configura o PMC */
+	pmc_enable_periph_clk(ID_RTC);
 
+	/* Default RTC configuration, 24-hour mode */
+	rtc_set_hour_mode(rtc, 0);
+
+	/* Configura data e hora manualmente */
+	rtc_set_date(rtc, t.year, t.month, t.day, t.week);
+	rtc_set_time(rtc, t.hour, t.minute, t.second);
+
+	/* Configure RTC interrupts */
+	NVIC_DisableIRQ(id_rtc);
+	NVIC_ClearPendingIRQ(id_rtc);
+	NVIC_SetPriority(id_rtc, 0);
+	NVIC_EnableIRQ(id_rtc);
+
+	/* Ativa interrupcao via alarme */
+	rtc_enable_interrupt(rtc, irq_type);
+}
+
+void RTC_Handler(void)
+{
+	uint32_t ul_status = rtc_get_status(RTC);
+
+	/*
+	*  Verifica por qual motivo entrou
+	*  na interrupcao, se foi por segundo
+	*  ou Alarm
+	*/
+	if ((ul_status & RTC_SR_SEC) == RTC_SR_SEC) {
+		rtc_clear_status(RTC, RTC_SCCR_SECCLR);
+	}
+	
+	/* Time or date alarm */
+	if ((ul_status & RTC_SR_ALARM) == RTC_SR_ALARM) {
+		rtc_clear_status(RTC, RTC_SCCR_ALRCLR);
+		flag_rtc = 1;
+	}
+	
+	rtc_clear_status(RTC, RTC_SCCR_ACKCLR);
+	rtc_clear_status(RTC, RTC_SCCR_TIMCLR);
+	rtc_clear_status(RTC, RTC_SCCR_CALCLR);
+	rtc_clear_status(RTC, RTC_SCCR_TDERRCLR);
+}
 /**
 * \brief Callback to get the Wi-Fi status update.
 *
@@ -201,6 +265,10 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg)
 		/*Initial first callback will be provided by the WINC itself on the first communication with NTP */
 		{
 			tstrSystemTime *strSysTime_now = (tstrSystemTime *)pvMsg;
+			uint32_t u8week = (int) (strSysTime_now->u8Day/7)+1;
+			
+			calendar rtc_initial = {strSysTime_now->u16Year,strSysTime_now->u8Month,u8week,strSysTime_now->u8Hour,strSysTime_now->u8Minute,strSysTime_now->u8Second};
+			RTC_init(RTC, ID_RTC, rtc_initial, RTC_IER_ALREN);
 
 			/* Print the hour, minute and second.
 			* GMT is the time at Greenwich Meridian.
@@ -208,7 +276,7 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg)
 			printf("socket_cb: Year: %d, Month: %d, The GMT time is %u:%02u:%02u\r\n",
 			strSysTime_now->u16Year,
 			strSysTime_now->u8Month,
-			strSysTime_now->u8Hour,    /* hour (86400 equals secs per day) */
+			strSysTime_now->u8Hour-3,    /* hour (86400 equals secs per day) */
 			strSysTime_now->u8Minute,  /* minute (3600 equals secs per minute) */
 			strSysTime_now->u8Second); /* second */
 			break;
@@ -221,6 +289,13 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg)
 	}
 }
 
+void post_msg(char *endpoint, char *data)
+{
+	size_t content_length = strlen(data);
+	sprintf(g_sendBuffer, "POST %s HTTP/1.0\nContent-Type: application/json\nContent-Length: %d\n\n%s", endpoint, content_length, data);
+	printf("MANDANDO POST - %s\n", g_sendBuffer);
+	send(tcp_client_socket, g_sendBuffer, strlen((char *)g_sendBuffer), 0);
+}
 /************************************************************************/
 /* TASKS                                                                */
 /************************************************************************/
@@ -248,81 +323,90 @@ static void task_process(void *pvParameters) {
 	while(1){
 
 		switch(state){
-			case WAIT:
-			// aguarda task_wifi conectar no wifi e socket estar pronto
-			printf("STATE: WAIT \n");
-			while(gbTcpConnection == false && tcp_client_socket >= 0){
-				vTaskDelay(10);
+			case WAIT: {
+				// aguarda task_wifi conectar no wifi e socket estar pronto
+				printf("STATE: WAIT \n");
+				while(gbTcpConnection == false && tcp_client_socket >= 0){
+					vTaskDelay(10);
+				}
+				state = POST;
+				break;
 			}
-			state = POST;
-			break;
 
-			case GET:
-			printf("STATE: GET \n");
-			sprintf((char *)g_sendBuffer, MAIN_PREFIX_BUFFER);
-			send(tcp_client_socket, g_sendBuffer, strlen((char *)g_sendBuffer), 0);
-			state = ACK;
-			break;
+			case GET: {
+				printf("STATE: GET \n");
+				sprintf((char *)g_sendBuffer, MAIN_PREFIX_BUFFER);
+				send(tcp_client_socket, g_sendBuffer, strlen((char *)g_sendBuffer), 0);
+				state = ACK;
+				break;
+			}
 			
-			case POST:
-			printf("STATE: POST \n");
-			contentLength = strlen(POSTDATA);
-			sprintf((char *)g_sendBuffer, "POST /status HTTP/1.0\nContent-Type: application/x-www-form-urlencoded\nContent-Length: %d\n\n%s",
-			contentLength, POSTDATA);
-			send(tcp_client_socket, g_sendBuffer, strlen((char *)g_sendBuffer), 0);
-			state = ACK;
-			break;
-
-			case ACK:
-			printf("STATE: ACK \n");
-			memset(g_receivedBuffer, 0, MAIN_WIFI_M2M_BUFFER_SIZE);
-			recv(tcp_client_socket, &g_receivedBuffer[0], MAIN_WIFI_M2M_BUFFER_SIZE, 0);
-
-			if(xQueueReceive(xQueueMsg, &p_recvMsg, 5000) == pdTRUE){
-				printf(STRING_LINE);
-				printf(p_recvMsg->pu8Buffer);
-				printf(STRING_EOL);  printf(STRING_LINE);
-				state = MSG;
+			case POST: {
+				uint32_t year, month, day, week, hour, seconds, minutes;
+				char time[100];
+				
+				rtc_get_date(RTC, &year, &month, &day, &week);
+				rtc_get_time(RTC, &hour, &minutes, &seconds);
+				sprintf(time, "\"%02d/%02d/%02d-%02d:%02d:%02d\"", year, month, day, hour, minutes, seconds);
+				char formatted_json[2000];
+				sprintf(formatted_json, "{\"timestamp\":%s,\"id\":%s}", time,ID_PLACA);
+				post_msg("/status", formatted_json);
+				state = ACK;
+				break;
 			}
-			else {
-				state = TIMEOUT;
-			};
-			break;
 
-			case MSG:
-			printf("STATE: MSG \n");
-			memset(g_receivedBuffer, 0, MAIN_WIFI_M2M_BUFFER_SIZE);
-			recv(tcp_client_socket, &g_receivedBuffer[0], MAIN_WIFI_M2M_BUFFER_SIZE, 0);
-
-			if(xQueueReceive(xQueueMsg, &p_recvMsg, 5000) == pdTRUE){
-				printf(STRING_LINE);
-				printf(p_recvMsg->pu8Buffer);
-				printf(STRING_EOL);  printf(STRING_LINE);
-				state = DONE;
+			case ACK: {
+				printf("STATE: ACK \n");
+				memset(g_receivedBuffer, 0, MAIN_WIFI_M2M_BUFFER_SIZE);
+				recv(tcp_client_socket, &g_receivedBuffer[0], MAIN_WIFI_M2M_BUFFER_SIZE, 0);
+				
+				if(xQueueReceive(xQueueMsg, &p_recvMsg, 5000) == pdTRUE){
+					printf(STRING_LINE);
+					printf(p_recvMsg->pu8Buffer);
+					printf(STRING_EOL);  printf(STRING_LINE);
+					state = MSG;
+				}
+				else {
+					state = TIMEOUT;
+				};
+				break;
 			}
-			else {
-				state = TIMEOUT;
-			};
-			break;
 
-			case DONE:
-			printf("STATE: DONE \n");
+			case MSG: {
+				printf("STATE: MSG \n");
+				memset(g_receivedBuffer, 0, MAIN_WIFI_M2M_BUFFER_SIZE);
+				recv(tcp_client_socket, &g_receivedBuffer[0], MAIN_WIFI_M2M_BUFFER_SIZE, 0);
+				
+				if(xQueueReceive(xQueueMsg, &p_recvMsg, 5000) == pdTRUE){
+					printf(STRING_LINE);
+					printf(p_recvMsg->pu8Buffer);
+					printf(STRING_EOL);  printf(STRING_LINE);
+					state = DONE;
+				}
+				else {
+					state = TIMEOUT;
+				};
+				break;
+			}
 
-			state = WAIT;
-			break;
-
-			case TIMEOUT:
-			state = WAIT;
-			break;
-
-			default: state = WAIT;
+			case DONE: {
+				printf("STATE: DONE \n");
+				
+				state = WAIT;
+				break;
+				
+				case TIMEOUT:
+				state = WAIT;
+				break;
+				
+				default: state = WAIT;
+			}
 		}
 	}
 }
 
-static void task_wifi(void *pvParameters) {
+void init_wifi(void) {
 	tstrWifiInitParam param;
-	struct sockaddr_in addr_in;
 
 	xSemaphore = xSemaphoreCreateCounting(20,0);
 	xQueueMsg = xQueueCreate(10, sizeof(tstrSocketRecvMsg));
@@ -346,18 +430,66 @@ static void task_wifi(void *pvParameters) {
 
 	/* Register socket callback function. */
 	registerSocketCallback(socket_cb, resolve_cb);
-
 	/* Connect to router. */
 	printf("main: connecting to WiFi AP %s...\r\n", (char *)MAIN_WLAN_SSID);
 	m2m_wifi_connect((char *)MAIN_WLAN_SSID, sizeof(MAIN_WLAN_SSID), MAIN_WLAN_AUTH, (char *)MAIN_WLAN_PSK, M2M_WIFI_CH_ALL);
 
+	
+}
+static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel, afec_callback_t callback){
+	printf("entrouuu");
+	/*************************************
+	* Ativa e configura AFEC
+	*************************************/
+	/* Ativa AFEC - 0 */
+	afec_enable(afec);
+
+	/* struct de configuracao do AFEC */
+	struct afec_config afec_cfg;
+
+	/* Carrega parametros padrao */
+	afec_get_config_defaults(&afec_cfg);
+
+	/* Configura AFEC */
+	afec_init(afec, &afec_cfg);
+
+	/* Configura trigger por software */
+	afec_set_trigger(afec, AFEC_TRIG_SW);
+
+	/*** Configuracao específica do canal AFEC ***/
+	struct afec_ch_config afec_ch_cfg;
+	afec_ch_get_config_defaults(&afec_ch_cfg);
+	afec_ch_cfg.gain = AFEC_GAINVALUE_0;
+	afec_ch_set_config(afec, afec_channel, &afec_ch_cfg);
+
+	/*
+	* Calibracao:
+	* Because the internal ADC offset is 0x200, it should cancel it and shift
+	down to 0.
+	*/
+	afec_channel_set_analog_offset(afec, afec_channel, 0x200);
+
+	/***  Configura sensor de temperatura ***/
+	struct afec_temp_sensor_config afec_temp_sensor_cfg;
+
+	afec_temp_sensor_get_config_defaults(&afec_temp_sensor_cfg);
+	afec_temp_sensor_set_config(afec, &afec_temp_sensor_cfg);
+	
+	/* configura IRQ */
+	afec_set_callback(afec, afec_channel,	callback, 1);
+	NVIC_SetPriority(afec_id, 4);
+	NVIC_EnableIRQ(afec_id);
+}
+
+static void task_wifi(void *pvParameters) {
+	init_wifi();
 	/* formata ip */
+	struct sockaddr_in addr_in;
 	addr_in.sin_family = AF_INET;
 	addr_in.sin_port = _htons(MAIN_SERVER_PORT);
 	inet_aton(MAIN_SERVER_NAME, &addr_in.sin_addr);
 
 	printf(STRING_LINE);
-
 	while(1){
 		vTaskDelay(50);
 		m2m_wifi_handle_events(NULL);
@@ -386,32 +518,56 @@ static void task_wifi(void *pvParameters) {
 		}
 	}
 }
-void init() {
+
+
+void init(void) {
 	/* Initialize the board. */
 	sysclk_init();
 	board_init();
-	/* *Initialize button */
-	
-	/* Initialize the UART console. */
 	configure_console();
-
+	printf(STRING_HEADER);
+	
 }
 void create_tasks() {
-	xTaskCreate(task_wifi, "Wifi", TASK_WIFI_STACK_SIZE, NULL, TASK_WIFI_PRIORITY, &xHandleWifi);
-	xTaskCreate(task_process, "process", TASK_PROCESS_STACK_SIZE, NULL, TASK_PROCESS_PRIORITY,  NULL );
-}
-
-int main(void)
-{
-	init();
-	create_tasks();
-
-	printf(STRING_HEADER);
-
+	if (xTaskCreate(task_wifi, "Wifi", TASK_WIFI_STACK_SIZE, NULL, TASK_WIFI_PRIORITY, NULL) != pdPASS) {
+		printf("Failed to create wifi task\r\n");
+	}
+	if (xTaskCreate(task_process, "process", TASK_PROCESS_STACK_SIZE, NULL, TASK_PROCESS_PRIORITY,  NULL) != pdPASS) {
+		printf("Failed to create process task\r\n");
+	}
 
 	vTaskStartScheduler();
+}
+int main(void)
+{
+	const usart_serial_options_t usart_serial_options = {
+		.baudrate     = CONF_UART_BAUDRATE,
+		.charlength   = CONF_UART_CHAR_LENGTH,
+		.paritytype   = CONF_UART_PARITY,
+		.stopbits     = CONF_UART_STOP_BITS
+	};
+	init();
+	create_tasks();
+	/* Initialize stdio on USART */
+	stdio_serial_init(CONF_UART, &usart_serial_options);
 
-	while(1) {};
+	/* inicializa e configura adc */
+	config_AFEC_pot(AFEC_POT, AFEC_POT_ID, AFEC_POT_CHANNEL, AFEC_pot_Callback);
+	
+	/* Selecina canal e inicializa conversão */
+	afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
+	afec_start_software_conversion(AFEC_POT);
+	
+	while(1) {
+		printf("carai\n\n");
+		if(g_is_conversion_done){
+			printf("%d\n", g_ul_value);
+			delay_ms(500);
+			
+			/* Selecina canal e inicializa conversão */
+			afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
+			afec_start_software_conversion(AFEC_POT);
+		}
+	};
 	return 0;
 }
-

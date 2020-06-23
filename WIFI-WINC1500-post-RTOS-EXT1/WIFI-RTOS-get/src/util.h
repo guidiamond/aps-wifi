@@ -19,7 +19,7 @@
 
 #define STRING_EOL  "\r\n"
 #define STRING_LINE "--------------------------------------------"STRING_EOL
-#define STRING_HEADER "-- WINC1500 client example --"STRING_EOL	\
+#define STRING_HEADER " IOT Communication "STRING_EOL	\
 "-- "BOARD_NAME " --"STRING_EOL	\
 "-- Compiled: "__DATE__ " "__TIME__ " --"STRING_EOL \
 STRING_LINE

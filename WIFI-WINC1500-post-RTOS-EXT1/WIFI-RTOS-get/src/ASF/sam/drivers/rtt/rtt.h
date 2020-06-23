@@ -1,9 +1,9 @@
 /**
  * \file
  *
- * \brief MAIN configuration.
+ * \brief Real-time Timer (RTT) driver for SAM.
  *
- * Copyright (c) 2016 Atmel Corporation. All rights reserved.
+ * Copyright (c) 2011-2015 Atmel Corporation. All rights reserved.
  *
  * \asf_license_start
  *
@@ -22,6 +22,9 @@
  * 3. The name of Atmel may not be used to endorse or promote products derived
  *    from this software without specific prior written permission.
  *
+ * 4. This software may only be redistributed and used in connection with an
+ *    Atmel microcontroller product.
+ *
  * THIS SOFTWARE IS PROVIDED BY ATMEL "AS IS" AND ANY EXPRESS OR IMPLIED
  * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT ARE
@@ -37,44 +40,41 @@
  * \asf_license_stop
  *
  */
+/*
+ * Support and FAQ: visit <a href="http://www.atmel.com/design-support/">Atmel Support</a>
+ */
 
-#ifndef MAIN_H_INCLUDED
-#define MAIN_H_INCLUDED
+#ifndef RTT_H_INCLUDED
+#define RTT_H_INCLUDED
 
+#include "compiler.h"
+
+/// @cond 0
+/**INDENT-OFF**/
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
+/**INDENT-ON**/
+/// @endcond
 
-#include "driver/include/m2m_wifi.h"
+uint32_t rtt_init(Rtt *p_rtt, uint16_t us_prescaler);
+#if (SAM4N || SAM4S || SAM4E || SAM4C || SAMG || SAM4CP || SAM4CM || SAMV71 || SAMV70 || SAME70 || SAMS70)
+void rtt_sel_source(Rtt *p_rtt, bool is_rtc_sel);
+void rtt_enable(Rtt *p_rtt);
+void rtt_disable(Rtt *p_rtt);
+#endif
+void rtt_enable_interrupt(Rtt *p_rtt, uint32_t ul_sources);
+void rtt_disable_interrupt(Rtt *p_rtt, uint32_t ul_sources);
+uint32_t rtt_read_timer_value(Rtt *p_rtt);
+uint32_t rtt_get_status(Rtt *p_rtt);
+uint32_t rtt_write_alarm_time(Rtt *p_rtt, uint32_t ul_alarm_time);
 
-/** Wi-Fi Settings */
-#define MAIN_WLAN_SSID "OnePlus 6"          /**< Destination SSID */
-#define MAIN_WLAN_AUTH M2M_WIFI_SEC_WPA_PSK /**< Security manner */
-#define MAIN_WLAN_PSK "Guifi345"            /**< Password for Destination SSID */
-
-/** Using broadcast address for simplicity. */
-#define MAIN_SERVER_PORT (5000)
-
-/** IP address parsing. */
-#define IPV4_BYTE(val, index) ((val >> (index * 8)) & 0xFF)
-
-/** Send buffer of TCP socket. */
-#define MAIN_PREFIX_BUFFER "GET /status HTTP/1.1\r\n Accept: */*\r\n\r\n"
-
-/** Weather information provider server. */
-#define MAIN_SERVER_NAME "192.168.43.88"
-
-/* Data in JSON format */
-#define MAIN_RESPONSE_FORMAT ""
-
-/** Receive buffer size. */
-#define MAIN_WIFI_M2M_BUFFER_SIZE 1400
-
-#define MAIN_HEX2ASCII(x) (((x) >= 10) ? (((x)-10) + 'A') : ((x) + '0'))
-
+/// @cond 0
+/**INDENT-OFF**/
 #ifdef __cplusplus
 }
 #endif
+/**INDENT-ON**/
+/// @endcond
 
-#endif /* MAIN_H_INCLUDED */
+#endif /* RTT_H_INCLUDED */
