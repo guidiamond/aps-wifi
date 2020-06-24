@@ -63,7 +63,7 @@ extern "C"
 #define MAIN_PREFIX_BUFFER "GET /status HTTP/1.1\r\n Accept: */*\r\n\r\n"
 
 /** Weather information provider server. */
-#define MAIN_SERVER_NAME "192.168.43.88"
+#define MAIN_SERVER_NAME "aps-embarcados-wifi.herokuapp.com"
 
 /* Data in JSON format */
 #define MAIN_RESPONSE_FORMAT ""
