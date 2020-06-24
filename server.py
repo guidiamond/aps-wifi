@@ -9,7 +9,6 @@ app = Flask(__name__)
 
 @app.route('/status', methods=['POST', 'GET'])
 def status():
-    # global led
     if request.method == 'POST':
         req = request.get_json()
         timestamp = req.get('timestamp')
@@ -17,14 +16,15 @@ def status():
         print("O request vale : ", timestamp, id)
         print(req)
         return jsonify({'sucess': 1}), 200
-       # status = request.form
-       # led = status['LED']
-       # return render_template("status.html", status = status)
     elif request.method == 'GET':
         return jsonify({'server_status': 1})
     else:
         return jsonify({'sucess': 0}), 200
 
+@app.route('/', methods=['GET'])
+def index():
+    if request.method == 'GET':
+        return jsonify({'server_status': 1})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=False)
