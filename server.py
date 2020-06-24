@@ -7,14 +7,8 @@ app = Flask(__name__)
 # led = 0
 
 
-@app.route('/')
-def control():
-    return render_template('index.html')
-
-
-@app.route('/status', methods=['POST', 'GET'])
+@app.route('/status', methods=['POST'])
 def status():
-    led = 0
     # global led
     if request.method == 'POST':
         req = request.get_json()
@@ -22,12 +16,12 @@ def status():
         id = req.get('id')
         print("O request vale : ", timestamp, id)
         print(req)
-        return jsonify({'success': 1})
+        return jsonify({'sucess': 1}), 200
        # status = request.form
        # led = status['LED']
        # return render_template("status.html", status = status)
     else:
-        return jsonify({'led': led}), 200
+        return jsonify({'sucess': 0}), 200
 
 
 if __name__ == '__main__':
