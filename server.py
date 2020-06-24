@@ -7,7 +7,7 @@ app = Flask(__name__)
 # led = 0
 
 
-@app.route('/status', methods=['POST'])
+@app.route('/status', methods=['POST', 'GET'])
 def status():
     # global led
     if request.method == 'POST':
@@ -20,6 +20,8 @@ def status():
        # status = request.form
        # led = status['LED']
        # return render_template("status.html", status = status)
+    elif request.method == 'GET':
+        return jsonify({'server_status': 1})
     else:
         return jsonify({'sucess': 0}), 200
 
