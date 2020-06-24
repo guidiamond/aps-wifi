@@ -49,9 +49,9 @@ extern "C"
 #include "driver/include/m2m_wifi.h"
 
 /** Wi-Fi Settings */
-#define MAIN_WLAN_SSID "OnePlus 6"          /**< Destination SSID */
+#define MAIN_WLAN_SSID "REDE"          /**< Destination SSID */
 #define MAIN_WLAN_AUTH M2M_WIFI_SEC_WPA_PSK /**< Security manner */
-#define MAIN_WLAN_PSK "Guifi345"            /**< Password for Destination SSID */
+#define MAIN_WLAN_PSK "Senha"            /**< Password for Destination SSID */
 
 /** Using broadcast address for simplicity. */
 #define MAIN_SERVER_PORT (5000)
@@ -63,7 +63,7 @@ extern "C"
 #define MAIN_PREFIX_BUFFER "GET /status HTTP/1.1\r\n Accept: */*\r\n\r\n"
 
 /** Weather information provider server. */
-#define MAIN_SERVER_NAME "aps-embarcados-wifi.herokuapp.com"
+#define MAIN_SERVER_NAME "192.168.43.88"
 
 /* Data in JSON format */
 #define MAIN_RESPONSE_FORMAT ""
