@@ -21,6 +21,7 @@ typedef struct
 
 
 volatile char flag_rtc = 0;
+volatile char but1_flag = 0;
 /************************************************************************/
 /* WIFI                                                                 */
 /************************************************************************/
@@ -61,8 +62,14 @@ volatile uint32_t g_ul_value = 0;
 /************************************************************************/
 /* RTOS                                                                 */
 /************************************************************************/
-
-
+void pisca_led(int n, int t, Pio* p, uint32_t mask) {
+	for (int i = 0; i < n; i++) {
+		pio_clear(p, mask);
+		delay_ms(t);
+		pio_set(p, mask);
+		delay_ms(t);
+	}
+}
 
 SemaphoreHandle_t xSemaphore, xSempahoreADC;
 QueueHandle_t xQueueMsg;
@@ -78,18 +85,48 @@ extern void xPortSysTickHandler(void);
 /************************************************************************/
 /* HOOKs                                                                */
 /************************************************************************/
+/************************************************************************/
+/* RTOS hooks                                                           */
+/************************************************************************/
 
+/**
+* \brief Called if stack overflow during execution
+*/
 extern void vApplicationStackOverflowHook(xTaskHandle *pxTask,
-signed char *pcTaskName){
+signed char *pcTaskName)
+{
 	printf("stack overflow %x %s\r\n", pxTask, (portCHAR *)pcTaskName);
-	for (;;) {  }
+	/* If the parameters have been corrupted then inspect pxCurrentTCB to
+	* identify which task has overflowed its stack.
+	*/
+	for (;;) {
+	}
 }
 
-extern void vApplicationIdleHook(void){}
+/**
+* \brief This function is called by FreeRTOS idle task
+*/
+extern void vApplicationIdleHook(void)
+{
+	pmc_sleep(SAM_PM_SMODE_SLEEP_WFI);
+}
 
-extern void vApplicationTickHook(void){}
+/**
+* \brief This function is called by FreeRTOS each tick
+*/
+extern void vApplicationTickHook(void)
+{
+}
 
-extern void vApplicationMallocFailedHook(void){
+extern void vApplicationMallocFailedHook(void)
+{
+	/* Called if a call to pvPortMalloc() fails because there is insufficient
+	free memory available in the FreeRTOS heap.  pvPortMalloc() is called
+	internally by FreeRTOS API functions that create tasks, queues, software
+	timers, and semaphores.  The size of the FreeRTOS heap is set by the
+	configTOTAL_HEAP_SIZE configuration constant in FreeRTOSConfig.h. */
+
+	/* Force an assert. */
 	configASSERT( ( volatile void * ) NULL );
 }
 /************************************************************************/
@@ -107,6 +144,9 @@ static void AFEC_pot_Callback(void){
 	g_is_conversion_done = true;
 }
 
+void but_callback(void){
+	but1_flag = 1 - but1_flag;
+}
 /**
 * \brief Callback function of IP address.
 *
@@ -123,6 +163,8 @@ static void resolve_cb(uint8_t *hostName, uint32_t hostIp)
 	(int)IPV4_BYTE(hostIp, 0), (int)IPV4_BYTE(hostIp, 1),
 	(int)IPV4_BYTE(hostIp, 2), (int)IPV4_BYTE(hostIp, 3));
 }
+
+
 
 /**
 * \brief Callback function of TCP client socket.
@@ -205,7 +247,7 @@ void RTC_init(Rtc *rtc, uint32_t id_rtc, calendar t, uint32_t irq_type)
 void RTC_Handler(void)
 {
 	uint32_t ul_status = rtc_get_status(RTC);
-
+	printf("entrou");
 	/*
 	*  Verifica por qual motivo entrou
 	*  na interrupcao, se foi por segundo
@@ -289,6 +331,49 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg)
 	}
 }
 
+static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel, afec_callback_t callback){
+	/*************************************
+	* Ativa e configura AFEC
+	*************************************/
+	/* Ativa AFEC - 0 */
+	afec_enable(afec);
+
+	/* struct de configuracao do AFEC */
+	struct afec_config afec_cfg;
+
+	/* Carrega parametros padrao */
+	afec_get_config_defaults(&afec_cfg);
+
+	/* Configura AFEC */
+	afec_init(afec, &afec_cfg);
+
+	/* Configura trigger por software */
+	afec_set_trigger(afec, AFEC_TRIG_SW);
+
+	/*** Configuracao específica do canal AFEC ***/
+	struct afec_ch_config afec_ch_cfg;
+	afec_ch_get_config_defaults(&afec_ch_cfg);
+	afec_ch_cfg.gain = AFEC_GAINVALUE_0;
+	afec_ch_set_config(afec, afec_channel, &afec_ch_cfg);
+
+	/*
+	* Calibracao:
+	* Because the internal ADC offset is 0x200, it should cancel it and shift
+	down to 0.
+	*/
+	afec_channel_set_analog_offset(afec, afec_channel, 0x200);
+
+	/***  Configura sensor de temperatura ***/
+	struct afec_temp_sensor_config afec_temp_sensor_cfg;
+
+	afec_temp_sensor_get_config_defaults(&afec_temp_sensor_cfg);
+	afec_temp_sensor_set_config(afec, &afec_temp_sensor_cfg);
+	
+	/* configura IRQ */
+	afec_set_callback(afec, afec_channel,	callback, 1);
+	NVIC_SetPriority(afec_id, 4);
+	NVIC_EnableIRQ(afec_id);
+}
 void post_msg(char *endpoint, char *data)
 {
 	size_t content_length = strlen(data);
@@ -320,8 +405,23 @@ static void task_process(void *pvParameters) {
 
 	enum states state = WAIT;
 
-	while(1){
+	const usart_serial_options_t usart_serial_options = {
+		.baudrate     = CONF_UART_BAUDRATE,
+		.charlength   = CONF_UART_CHAR_LENGTH,
+		.paritytype   = CONF_UART_PARITY,
+		.stopbits     = CONF_UART_STOP_BITS
+	};
+	/* Initialize stdio on USART */
+	stdio_serial_init(CONF_UART, &usart_serial_options);
 
+	/* inicializa e configura adc */
+	config_AFEC_pot(AFEC_POT, AFEC_POT_ID, AFEC_POT_CHANNEL, AFEC_pot_Callback);
+
+	/* Selecina canal e inicializa conversão */
+	afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
+	afec_start_software_conversion(AFEC_POT);
+	while(1){
+		
 		switch(state){
 			case WAIT: {
 				// aguarda task_wifi conectar no wifi e socket estar pronto
@@ -344,12 +444,20 @@ static void task_process(void *pvParameters) {
 			case POST: {
 				uint32_t year, month, day, week, hour, seconds, minutes;
 				char time[100];
-				
+				uint32_t trimpot_value = 0;
+				if(g_is_conversion_done){
+					trimpot_value = g_ul_value;
+					delay_ms(500);
+					
+					/* Selecina canal e inicializa conversão */
+					afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
+					afec_start_software_conversion(AFEC_POT);
+				}
 				rtc_get_date(RTC, &year, &month, &day, &week);
 				rtc_get_time(RTC, &hour, &minutes, &seconds);
 				sprintf(time, "\"%02d/%02d/%02d-%02d:%02d:%02d\"", year, month, day, hour, minutes, seconds);
 				char formatted_json[2000];
-				sprintf(formatted_json, "{\"timestamp\":%s,\"id\":%s}", time,ID_PLACA);
+				sprintf(formatted_json, "{\"timestamp\":%s,\"id\":%s, \"trimpot_value\":%d,\"button_status\":%d}", time,ID_PLACA,trimpot_value, but1_flag);
 				post_msg("/status", formatted_json);
 				state = ACK;
 				break;
@@ -363,7 +471,9 @@ static void task_process(void *pvParameters) {
 				if(xQueueReceive(xQueueMsg, &p_recvMsg, 5000) == pdTRUE){
 					printf(STRING_LINE);
 					printf(p_recvMsg->pu8Buffer);
-					printf(STRING_EOL);  printf(STRING_LINE);
+					pisca_led(5, 50, LED_PIO, LED_IDX_MASK);
+					printf(STRING_EOL);
+					printf(STRING_LINE);
 					state = MSG;
 				}
 				else {
@@ -391,7 +501,6 @@ static void task_process(void *pvParameters) {
 
 			case DONE: {
 				printf("STATE: DONE \n");
-				
 				state = WAIT;
 				break;
 				
@@ -436,50 +545,6 @@ void init_wifi(void) {
 
 	
 }
-static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel, afec_callback_t callback){
-	printf("entrouuu");
-	/*************************************
-	* Ativa e configura AFEC
-	*************************************/
-	/* Ativa AFEC - 0 */
-	afec_enable(afec);
-
-	/* struct de configuracao do AFEC */
-	struct afec_config afec_cfg;
-
-	/* Carrega parametros padrao */
-	afec_get_config_defaults(&afec_cfg);
-
-	/* Configura AFEC */
-	afec_init(afec, &afec_cfg);
-
-	/* Configura trigger por software */
-	afec_set_trigger(afec, AFEC_TRIG_SW);
-
-	/*** Configuracao específica do canal AFEC ***/
-	struct afec_ch_config afec_ch_cfg;
-	afec_ch_get_config_defaults(&afec_ch_cfg);
-	afec_ch_cfg.gain = AFEC_GAINVALUE_0;
-	afec_ch_set_config(afec, afec_channel, &afec_ch_cfg);
-
-	/*
-	* Calibracao:
-	* Because the internal ADC offset is 0x200, it should cancel it and shift
-	down to 0.
-	*/
-	afec_channel_set_analog_offset(afec, afec_channel, 0x200);
-
-	/***  Configura sensor de temperatura ***/
-	struct afec_temp_sensor_config afec_temp_sensor_cfg;
-
-	afec_temp_sensor_get_config_defaults(&afec_temp_sensor_cfg);
-	afec_temp_sensor_set_config(afec, &afec_temp_sensor_cfg);
-	
-	/* configura IRQ */
-	afec_set_callback(afec, afec_channel,	callback, 1);
-	NVIC_SetPriority(afec_id, 4);
-	NVIC_EnableIRQ(afec_id);
-}
 
 static void task_wifi(void *pvParameters) {
 	init_wifi();
@@ -518,15 +583,27 @@ static void task_wifi(void *pvParameters) {
 		}
 	}
 }
-
+void init_but_and_led() {
+	pmc_enable_periph_clk(BUT_PIO_ID);
+	pmc_enable_periph_clk(LED_PIO_ID);
+	pio_configure(BUT_PIO, PIO_INPUT, BUT_PIO_IDX_MASK, PIO_PULLUP|PIO_DEBOUNCE);
+	pio_configure(LED_PIO, PIO_OUTPUT_1, LED_IDX_MASK, PIO_DEFAULT);
+	
+	pio_handler_set(BUT_PIO, BUT_PIO_ID, BUT_PIO_IDX_MASK, PIO_IT_RISE_EDGE, (void (*)(uint32_t, uint32_t)) but_callback);
+	
+	
+	
+}
 
 void init(void) {
 	/* Initialize the board. */
 	sysclk_init();
 	board_init();
+	init_but_and_led();
 	configure_console();
 	printf(STRING_HEADER);
-	
+	// Desativa watchdog
+	WDT->WDT_MR = WDT_MR_WDDIS;
 }
 void create_tasks() {
 	if (xTaskCreate(task_wifi, "Wifi", TASK_WIFI_STACK_SIZE, NULL, TASK_WIFI_PRIORITY, NULL) != pdPASS) {
@@ -540,34 +617,8 @@ void create_tasks() {
 }
 int main(void)
 {
-	const usart_serial_options_t usart_serial_options = {
-		.baudrate     = CONF_UART_BAUDRATE,
-		.charlength   = CONF_UART_CHAR_LENGTH,
-		.paritytype   = CONF_UART_PARITY,
-		.stopbits     = CONF_UART_STOP_BITS
-	};
 	init();
 	create_tasks();
-	/* Initialize stdio on USART */
-	stdio_serial_init(CONF_UART, &usart_serial_options);
-
-	/* inicializa e configura adc */
-	config_AFEC_pot(AFEC_POT, AFEC_POT_ID, AFEC_POT_CHANNEL, AFEC_pot_Callback);
-	
-	/* Selecina canal e inicializa conversão */
-	afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
-	afec_start_software_conversion(AFEC_POT);
-	
-	while(1) {
-		printf("carai\n\n");
-		if(g_is_conversion_done){
-			printf("%d\n", g_ul_value);
-			delay_ms(500);
-			
-			/* Selecina canal e inicializa conversão */
-			afec_channel_enable(AFEC_POT, AFEC_POT_CHANNEL);
-			afec_start_software_conversion(AFEC_POT);
-		}
-	};
+	while(1) {};
 	return 0;
 }

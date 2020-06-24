@@ -9,6 +9,18 @@
 #ifndef DEFS_H_
 #define DEFS_H_
 
+// LED
+#define LED_PIO           PIOC                  // periferico que controla o LED
+#define LED_PIO_ID        ID_PIOC               // ID do periférico PIOC (controla LED)
+#define LED_IDX           8u                    // ID do LED no PIO
+#define LED_IDX_MASK      (1u << LED_IDX)       // Mascara para CONTROLARMOS o LED
+
+// Configuracoes do botao
+#define BUT_PIO           PIOA
+#define BUT_PIO_ID		  ID_PIOA
+#define BUT_PIO_IDX       11
+#define BUT_PIO_IDX_MASK (1 << BUT_PIO_IDX)
+
 #define ID_PLACA		          "234"		  
 #define TASK_WIFI_STACK_SIZE      (6*4096/sizeof(portSTACK_TYPE))
 #define TASK_WIFI_PRIORITY        (1)
