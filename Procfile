@@ -1,1 +1,1 @@
-FLASK_APP=python server.py
+web: python server.py
